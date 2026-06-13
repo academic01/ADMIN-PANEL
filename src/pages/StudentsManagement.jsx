@@ -49,8 +49,13 @@ export default function StudentsManagement() {
 
   const handleToggleBlock = async (student) => {
     const newActiveState = student.isActive === false ? true : false;
-    const actionText = newActiveState ? 'unblock' : 'block';
-    if (!window.confirm(`Are you sure you want to ${actionText} ${student.name || 'this student'}?`)) return;
+    
+    // Custom warning prompt as requested
+    const confirmationText = newActiveState 
+      ? "Unblock this student?" 
+      : "Block this student? They will be immediately signed out of the app.";
+      
+    if (!window.confirm(confirmationText)) return;
 
     try {
       await updateDoc(doc(db, 'users', student.id), { isActive: newActiveState });

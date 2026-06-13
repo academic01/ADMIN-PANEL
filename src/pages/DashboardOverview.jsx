@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, getDocs, getDoc, doc, query, where, orderBy, limit } from 'firebase/firestore';
-import { Users, BookOpen, GraduationCap, ClipboardCheck, ArrowRight, UserPlus, BookOpenCheck } from 'lucide-react';
+import { Users, BookOpen, GraduationCap, ClipboardCheck, ArrowRight, UserPlus, BookOpenCheck, HelpCircle } from 'lucide-react';
 
 function getRelativeTime(timestamp) {
   if (!timestamp) return 'some time ago';
@@ -30,7 +30,8 @@ export default function DashboardOverview({ setPage }) {
     totalStudents: 0,
     activeCourses: 0,
     totalEnrollments: 0,
-    testsCompleted: 0
+    testsCompleted: 0,
+    pendingDoubts: 0
   });
   const [recentRegistrations, setRecentRegistrations] = useState([]);
   const [recentEnrollments, setRecentEnrollments] = useState([]);
@@ -55,11 +56,16 @@ export default function DashboardOverview({ setPage }) {
         // Tests Completed Count
         const testsSnap = await getDocs(collection(db, 'testResults'));
 
+        // Pending Doubts Count
+        const doubtsQuery = query(collection(db, 'doubts'), where('status', '==', 'pending'));
+        const doubtsSnap = await getDocs(doubtsQuery);
+
         setStats({
           totalStudents: studentsSnap.size,
           activeCourses: coursesSnap.size,
           totalEnrollments: enrollmentsSnap.size,
-          testsCompleted: testsSnap.size
+          testsCompleted: testsSnap.size,
+          pendingDoubts: doubtsSnap.size
         });
 
         // 2. RECENT REGISTRATIONS
@@ -157,6 +163,16 @@ export default function DashboardOverview({ setPage }) {
             <p className="stat-value">{loading ? '...' : stats.testsCompleted}</p>
           </div>
         </div>
+
+        <div className="stat-card">
+          <div className="stat-icon-wrapper courses" style={{ background: '#FFFBEB', color: '#F59E0B' }}>
+            <HelpCircle size={24} />
+          </div>
+          <div className="stat-details">
+            <h3>Pending Doubts</h3>
+            <p className="stat-value">{loading ? '...' : stats.pendingDoubts}</p>
+          </div>
+        </div>
       </div>
 
       {/* QUICK ACTIONS ROW */}
@@ -174,6 +190,9 @@ export default function DashboardOverview({ setPage }) {
           </button>
           <button className="secondary-button" onClick={() => setPage('notifications')}>
             Send Notification
+          </button>
+          <button className="secondary-button" onClick={() => setPage('doubts')}>
+            Answer Doubts
           </button>
         </div>
       </div>

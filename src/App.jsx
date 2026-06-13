@@ -11,13 +11,15 @@ import SettingsManagement from './pages/SettingsManagement';
 import TestsManagement from './pages/TestsManagement';
 import NotificationsManagement from './pages/NotificationsManagement';
 import PaymentsManagement from './pages/PaymentsManagement';
-import { LayoutDashboard, BookOpen, Video, ClipboardList, Users, Bell, CreditCard, Settings, LogOut } from 'lucide-react';
+import DoubtsManagement from './pages/DoubtsManagement';
+import { LayoutDashboard, BookOpen, Video, ClipboardList, MessageSquare, Users, Bell, CreditCard, Settings, LogOut } from 'lucide-react';
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'courses', label: 'Courses', icon: BookOpen },
   { id: 'live', label: 'Live Classes', icon: Video },
   { id: 'tests', label: 'Tests', icon: ClipboardList },
+  { id: 'doubts', label: 'Doubts', icon: MessageSquare },
   { id: 'students', label: 'Students', icon: Users },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'payments', label: 'Payments', icon: CreditCard },
@@ -130,6 +132,7 @@ export default function App() {
           {activePage === 'students' && <StudentsManagement />}
           {activePage === 'settings' && <SettingsManagement />}
           {activePage === 'tests' && <TestsManagement />}
+          {activePage === 'doubts' && <DoubtsManagement />}
           {activePage === 'notifications' && <NotificationsManagement />}
           {activePage === 'payments' && <PaymentsManagement />}
         </div>

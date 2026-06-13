@@ -76,8 +76,8 @@ export default function SettingsManagement() {
         });
 
         setHero({
-          heroHeading1: data.heroHeading1 || '',
-          heroHeading2: data.heroHeading2 || '',
+          heroHeading1: data.heroHeadingLine1 || data.heroHeading1 || '',
+          heroHeading2: data.heroHeadingLine2 || data.heroHeading2 || '',
           heroSubheading: data.heroSubheading || '',
           stats: data.stats || [
             { number: '', label: '' },
@@ -95,10 +95,10 @@ export default function SettingsManagement() {
         });
 
         setSocials({
-          youtube: data.youtube || '',
-          instagram: data.instagram || '',
-          facebook: data.facebook || '',
-          telegram: data.telegram || ''
+          youtube: data.socialLinks?.youtube || data.youtube || '',
+          instagram: data.socialLinks?.instagram || data.instagram || '',
+          facebook: data.socialLinks?.facebook || data.facebook || '',
+          telegram: data.socialLinks?.telegram || data.telegram || ''
         });
       }
     } catch (e) {
@@ -124,7 +124,12 @@ export default function SettingsManagement() {
 
   const handleHeroSubmit = (e) => {
     e.preventDefault();
-    saveTabSettings(hero);
+    saveTabSettings({
+      heroHeadingLine1: hero.heroHeading1,
+      heroHeadingLine2: hero.heroHeading2,
+      heroSubheading: hero.heroSubheading,
+      stats: hero.stats
+    });
   };
 
   const handleAnnouncementsSubmit = (e) => {
@@ -134,7 +139,14 @@ export default function SettingsManagement() {
 
   const handleSocialsSubmit = (e) => {
     e.preventDefault();
-    saveTabSettings(socials);
+    saveTabSettings({
+      socialLinks: {
+        youtube: socials.youtube || '',
+        instagram: socials.instagram || '',
+        facebook: socials.facebook || '',
+        telegram: socials.telegram || ''
+      }
+    });
   };
 
   const addTickerItem = () => {
