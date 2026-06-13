@@ -1,0 +1,79 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if the authenticated user is an admin
+    function isAdmin() {
+      return request.auth != null && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Users collection rules
+    match /users/{userId} {
+      // Allow user to read/write their own profile; admins can read all and update accounts
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        request.auth.uid == userId || 
+        (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isActive']))
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Courses collection rules
+    match /courses/{courseId} {
+      // Everyone (authenticated users) can view active courses, admins have full access
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Live Classes collection rules
+    match /liveClasses/{classId} {
+      // Authenticated users can view schedules, admins have full access
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Enrollments collection rules
+    match /enrollments/{enrollmentId} {
+      // Students can view/create their own enrollments, admins have full access
+      allow read, write: if request.auth != null && (resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Test results collection rules
+    match /testResults/{resultId} {
+      // Students can read/create their own results, admins have full access
+      allow read, write: if request.auth != null && (resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Tests collection rules
+    match /tests/{testId} {
+      // Authenticated users can read tests, only admin can write
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Questions collection rules
+    match /questions/{questionId} {
+      // Authenticated users can read questions, only admin can write
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Notifications collection rules
+    match /notifications/{notificationId} {
+      // Authenticated students can read notifications, only admin can write
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Settings collection rules
+    match /settings/{settingId} {
+      // Everyone can read settings, only admin can write
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
