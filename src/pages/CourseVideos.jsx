@@ -1,644 +1,935 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { 
-  collection, doc, getDoc, updateDoc, deleteDoc, addDoc, 
-  query, where, orderBy, onSnapshot, increment, serverTimestamp 
+import {
+  collection, query, where,
+  orderBy, onSnapshot, addDoc,
+  updateDoc, deleteDoc, doc,
+  increment, serverTimestamp
 } from 'firebase/firestore';
-import { ArrowLeft, Plus, Edit2, Trash2, ChevronDown, ChevronUp, GripVertical, Play, Info, Video, CheckCircle2, AlertTriangle, Eye } from 'lucide-react';
+
+const overlayStyle = {
+  position: 'fixed',
+  top: 0, left: 0,
+  right: 0, bottom: 0,
+  backgroundColor: 'rgba(0,0,0,0.5)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000
+};
+
+const modalTitleStyle = {
+  color: '#0D2240',
+  margin: '0 0 24px',
+  fontSize: '20px',
+  fontWeight: '800'
+};
+
+const inputStyle = {
+  width: '100%',
+  padding: '12px 16px',
+  border: '1px solid #E5E5E5',
+  borderRadius: '10px',
+  fontSize: '14px',
+  outline: 'none',
+  boxSizing: 'border-box',
+  marginBottom: '8px'
+};
+
+const toggleLabelStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  cursor: 'pointer',
+  fontWeight: '600',
+  fontSize: '14px'
+};
+
+const editBtnStyle = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  fontSize: '16px',
+  padding: '4px'
+};
+
+const deleteBtnStyle = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  fontSize: '16px',
+  padding: '4px'
+};
+
+const defaultVideoForm = {
+  title: '',
+  chapterTitle: '',
+  description: '',
+  videoUrl: '',
+  duration: '',
+  order: '',
+  isFree: false,
+  isLocked: true
+};
+
+function FormField({ label, children }) {
+  return (
+    <div style={{ marginBottom: '20px' }}>
+      <label style={{
+        display: 'block',
+        color: '#444',
+        fontSize: '13px',
+        fontWeight: '600',
+        marginBottom: '6px'
+      }}>
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function EmptyState({ onAddChapter }) {
+  return (
+    <div style={{
+      padding: '64px 24px',
+      textAlign: 'center',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '16px',
+      backgroundColor: 'white',
+      borderRadius: '16px',
+      border: '1px solid #E5E5E5',
+      margin: '24px'
+    }}>
+      <div style={{
+        width: '56px',
+        height: '56px',
+        borderRadius: '50%',
+        backgroundColor: '#F9F9F9',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#888',
+        fontSize: '24px'
+      }}>
+        📺
+      </div>
+      <div>
+        <h3 style={{ fontSize: '18px', color: '#0D2240', margin: 0, fontWeight: '700' }}>No content yet</h3>
+        <p style={{ color: '#888', fontSize: '14px', marginTop: '4px', margin: 0 }}>
+          Add your first chapter to get started building this course structure.
+        </p>
+      </div>
+      <button 
+        onClick={onAddChapter}
+        style={{
+          padding: '12px 24px',
+          backgroundColor: '#0D2240',
+          color: 'white',
+          border: 'none',
+          borderRadius: '50px',
+          fontSize: '14px',
+          fontWeight: '700',
+          cursor: 'pointer',
+          marginTop: '8px'
+        }}
+      >
+        + Add First Chapter
+      </button>
+    </div>
+  );
+}
 
 export default function CourseVideos({ courseId, courseTitle, setPage }) {
-  const [chapters, setChapters] = useState({});
-  const [totalVideos, setTotalVideos] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [chapters, setChapters] = useState([]);
+  const [videos, setVideos] = useState([]);
+  const [expandedChapters, setExpandedChapters] = useState([]);
 
-  // Expanded Accordions State (chapterTitle -> boolean)
-  const [expandedChapters, setExpandedChapters] = useState({});
-
-  // Chapter Modal
+  // Chapter Modal State
   const [showChapterModal, setShowChapterModal] = useState(false);
-  const [chapterModalTitle, setChapterModalTitle] = useState('');
-  const [editingChapterOldName, setEditingChapterOldName] = useState(null);
+  const [chapterTitle, setChapterTitle] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  // Video Modal
+  // Video Modal State
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [editingVideo, setEditingVideo] = useState(null);
-  const [videoFormData, setVideoFormData] = useState({
-    title: '',
-    chapterTitle: '',
-    description: '',
-    videoUrl: '',
-    duration: '',
-    order: 1,
-    isFree: false,
-    isLocked: true
-  });
-
-  // Inline "Add New Chapter" inside video form helper
-  const [showInlineChapterInput, setShowInlineChapterInput] = useState(false);
-  const [inlineChapterName, setInlineChapterName] = useState('');
+  const [savingVideo, setSavingVideo] = useState(false);
+  const [videoForm, setVideoForm] = useState(defaultVideoForm);
 
   useEffect(() => {
     if (!courseId) return;
 
-    setLoading(true);
-    const q = query(
-      collection(db, 'videos'),
+    // Load chapters for this course
+    const chaptersQuery = query(
+      collection(db, 'chapters'),
       where('courseId', '==', courseId),
-      orderBy('chapterIndex', 'asc'),
-      orderBy('order', 'asc')
+      orderBy('index', 'asc')
     );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const videoDocs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      
-      // Group by chapterTitle
-      const grouped = {};
-      videoDocs.forEach(v => {
-        const ch = v.chapterTitle || 'Uncategorized';
-        if (!grouped[ch]) grouped[ch] = [];
-        grouped[ch].push(v);
-      });
-
-      setChapters(grouped);
-      setTotalVideos(videoDocs.length);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching videos:", error);
-      setLoading(false);
+    
+    const unsubChapters = onSnapshot(
+      chaptersQuery, (snap) => {
+      setChapters(snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      })));
     });
-
-    return () => unsubscribe();
+    
+    // Load videos for this course
+    const videosQuery = query(
+      collection(db, 'videos'),
+      where('courseId', '==', courseId)
+    );
+    
+    const unsubVideos = onSnapshot(
+      videosQuery, (snap) => {
+      setVideos(snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      })));
+    });
+    
+    return () => {
+      unsubChapters();
+      unsubVideos();
+    };
   }, [courseId]);
 
-  // Extract YouTube ID Helper
+  // Helper: get videos for a chapter
+  const getChapterVideos = (chapterTitle) => {
+    return videos
+      .filter(v => 
+        v.chapterTitle === chapterTitle)
+      .sort((a, b) => 
+        (a.order || 0) - (b.order || 0));
+  };
+
+  const totalVideos = videos.length;
+  const totalChapters = chapters.length;
+
+  const toggleChapter = (chapterId) => {
+    setExpandedChapters(prev => 
+      prev.includes(chapterId)
+        ? prev.filter(id => 
+            id !== chapterId)
+        : [...prev, chapterId]);
+  };
+
+  // YouTube ID extractor:
   const getYouTubeId = (url) => {
     if (!url) return null;
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
+    const regex = /(?:youtube\.com\/(?:watch\?v=|live\/|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+    const match = url.match(regex);
+    return match ? match[1] : null;
   };
 
-  const getYouTubeThumbnail = (url) => {
-    const videoId = getYouTubeId(url);
-    return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null;
-  };
+  // YouTube thumbnail preview:
+  const youtubeThumbnail = 
+    getYouTubeId(videoForm.videoUrl)
+    ? `https://img.youtube.com/vi/${
+        getYouTubeId(videoForm.videoUrl)
+      }/hqdefault.jpg`
+    : null;
 
-  const handleToggleChapter = (chapterTitle) => {
-    setExpandedChapters(prev => ({
-      ...prev,
-      [chapterTitle]: !prev[chapterTitle]
-    }));
-  };
-
-  // Chapter CRUD
-  const handleOpenChapterModal = (oldName = null) => {
-    if (oldName) {
-      setEditingChapterOldName(oldName);
-      setChapterModalTitle(oldName);
-    } else {
-      setEditingChapterOldName(null);
-      setChapterModalTitle('');
-    }
-    setShowChapterModal(true);
-  };
-
-  const handleChapterSubmit = async (e) => {
-    e.preventDefault();
-    const newName = chapterModalTitle.trim();
-    if (!newName) return;
-
-    try {
-      if (editingChapterOldName) {
-        // Edit Chapter Name: Rename chapterTitle in all associated videos
-        const videosInCh = chapters[editingChapterOldName] || [];
-        await Promise.all(
-          videosInCh.map(async (vid) => {
-            await updateDoc(doc(db, 'videos', vid.id), {
-              chapterTitle: newName
-            });
-          })
-        );
-        alert("Chapter renamed successfully!");
-      } else {
-        // Add Chapter: Just initialize key in local state with empty array so UI registers it
-        setChapters(prev => ({
-          ...prev,
-          [newName]: prev[newName] || []
-        }));
-        setExpandedChapters(prev => ({ ...prev, [newName]: true }));
-        alert("Chapter added! You can now add videos to it.");
-      }
-      setShowChapterModal(false);
-    } catch (err) {
-      alert("Error saving chapter: " + err.message);
-    }
-  };
-
-  const handleChapterDelete = async (chapterTitle) => {
-    const videosInCh = chapters[chapterTitle] || [];
-    if (videosInCh.length > 0) {
-      alert("Cannot delete a chapter containing videos. Please delete or move all videos first.");
-      return;
-    }
-
-    if (window.confirm(`Are you sure you want to delete chapter "${chapterTitle}"?`)) {
-      setChapters(prev => {
-        const copy = { ...prev };
-        delete copy[chapterTitle];
-        return copy;
-      });
-    }
-  };
-
-  // Video CRUD
-  const handleOpenVideoModal = (video = null, defaultChapter = '') => {
-    if (video) {
-      setEditingVideo(video);
-      setVideoFormData({
-        title: video.title || '',
-        chapterTitle: video.chapterTitle || '',
-        description: video.description || '',
-        videoUrl: video.videoUrl || '',
-        duration: video.duration || '',
-        order: video.order || 1,
-        isFree: video.isFree || false,
-        isLocked: video.isLocked !== false
-      });
-    } else {
-      // Find default chapter if possible
-      const chaptersList = Object.keys(chapters);
-      const initialChapter = defaultChapter || chaptersList[0] || '';
-      
-      setEditingVideo(null);
-      setVideoFormData({
-        title: '',
-        chapterTitle: initialChapter,
-        description: '',
-        videoUrl: '',
-        duration: '',
-        order: (chapters[initialChapter]?.length || 0) + 1,
-        isFree: false,
-        isLocked: true
-      });
-    }
-    setShowInlineChapterInput(false);
-    setShowVideoModal(true);
-  };
-
-  const handleVideoSubmit = async (e) => {
-    e.preventDefault();
-
-    let targetChapter = videoFormData.chapterTitle;
+  // handleAddChapter function:
+  const handleAddChapter = async () => {
+    if (!chapterTitle.trim()) return;
+    setSaving(true);
     
-    // Inline chapter creation handler
-    if (showInlineChapterInput && inlineChapterName.trim()) {
-      targetChapter = inlineChapterName.trim();
-      setChapters(prev => ({ ...prev, [targetChapter]: prev[targetChapter] || [] }));
-    }
-
-    if (!targetChapter) {
-      alert("Please select or specify a chapter.");
-      return;
-    }
-
-    const chaptersArray = Object.keys(chapters);
-    let chIndex = chaptersArray.indexOf(targetChapter);
-    if (chIndex === -1) {
-      chIndex = chaptersArray.length;
-    }
-
-    const videoData = {
-      courseId,
-      chapterTitle: targetChapter,
-      chapterIndex: chIndex,
-      title: videoFormData.title.trim(),
-      description: videoFormData.description.trim(),
-      videoUrl: videoFormData.videoUrl.trim(),
-      duration: Number(videoFormData.duration) || 0,
-      order: Number(videoFormData.order) || 1,
-      isFree: videoFormData.isFree,
-      isLocked: !videoFormData.isFree, // Mutual exclusion
-      views: editingVideo ? (editingVideo.views || 0) : 0,
-      createdAt: editingVideo ? (editingVideo.createdAt || serverTimestamp()) : serverTimestamp()
-    };
-
     try {
-      if (editingVideo) {
-        await updateDoc(doc(db, 'videos', editingVideo.id), videoData);
-        alert("Video updated!");
-      } else {
-        await addDoc(collection(db, 'videos'), videoData);
-        // Increment course totalVideos count
-        await updateDoc(doc(db, 'courses', courseId), {
-          totalVideos: increment(1)
-        });
-        alert("Video added to course!");
-      }
-      setShowVideoModal(false);
-    } catch (err) {
-      alert("Error saving video: " + err.message);
-    }
-  };
-
-  const handleVideoDelete = async (videoId) => {
-    if (!window.confirm("Are you sure you want to delete this video? This action cannot be undone.")) return;
-    try {
-      await deleteDoc(doc(db, 'videos', videoId));
-      // Decrement course totalVideos count
-      await updateDoc(doc(db, 'courses', courseId), {
-        totalVideos: increment(-1)
+      const newChapterIndex = chapters.length;
+      
+      await addDoc(
+        collection(db, 'chapters'), {
+        courseId: courseId,
+        title: chapterTitle.trim(),
+        index: newChapterIndex,
+        createdAt: serverTimestamp()
       });
-      alert("Video deleted.");
-    } catch (err) {
-      alert("Error deleting video: " + err.message);
+      
+      setShowChapterModal(false);
+      setChapterTitle('');
+    } catch (e) {
+      console.error('Add chapter:', e);
+      alert('Failed to add chapter: ' + e.message);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const ytId = getYouTubeId(videoFormData.videoUrl);
-  const ytThumb = getYouTubeThumbnail(videoFormData.videoUrl);
-  const chapterKeys = Object.keys(chapters);
+  // handleSaveVideo function:
+  const handleSaveVideo = async () => {
+    if (!videoForm.title.trim() ||
+        !videoForm.chapterTitle ||
+        !getYouTubeId(videoForm.videoUrl))
+      return;
+    
+    setSavingVideo(true);
+    
+    try {
+      const chapterIndex = chapters
+        .findIndex(ch => 
+          ch.title === 
+          videoForm.chapterTitle);
+      
+      const videoData = {
+        courseId: courseId,
+        chapterTitle: 
+          videoForm.chapterTitle,
+        chapterIndex: 
+          chapterIndex >= 0 
+            ? chapterIndex : 0,
+        title: videoForm.title.trim(),
+        description: 
+          videoForm.description.trim(),
+        videoUrl: videoForm.videoUrl.trim(),
+        duration: Number(
+          videoForm.duration) || 0,
+        order: Number(
+          videoForm.order) || 1,
+        isFree: videoForm.isFree,
+        isLocked: !videoForm.isFree,
+        views: editingVideo ? (editingVideo.views || 0) : 0,
+      };
+      
+      if (editingVideo) {
+        await updateDoc(
+          doc(db, 'videos', 
+            editingVideo.id),
+          {
+            ...videoData,
+            updatedAt: serverTimestamp()
+          });
+      } else {
+        await addDoc(
+          collection(db, 'videos'),
+          {
+            ...videoData,
+            createdAt: serverTimestamp()
+          });
+        
+        // Increment course video count
+        await updateDoc(
+          doc(db, 'courses', courseId),
+          { totalVideos: 
+            increment(1) });
+      }
+      
+      setShowVideoModal(false);
+      setEditingVideo(null);
+      setVideoForm(defaultVideoForm);
+      
+    } catch (e) {
+      console.error('Save video:', e);
+      alert('Failed to save: ' + e.message);
+    } finally {
+      setSavingVideo(false);
+    }
+  };
+
+  // Delete video function:
+  const deleteVideo = async (videoId) => {
+    if (!window.confirm('Delete this video?')) return;
+    try {
+      await deleteDoc(
+        doc(db, 'videos', videoId));
+      await updateDoc(
+        doc(db, 'courses', courseId),
+        { totalVideos: 
+            increment(-1) });
+    } catch (e) {
+      alert('Delete failed: ' + e.message);
+    }
+  };
 
   return (
-    <div className="management-container">
+    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
       {/* Header */}
-      <div className="management-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <button className="secondary-button" onClick={() => setPage('courses')} style={{ padding: '8px' }}>
-            <ArrowLeft size={18} />
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '32px',
+        borderBottom: '1px solid #E5E5E5',
+        paddingBottom: '24px'
+      }}>
+        <div>
+          <button 
+            onClick={() => setPage('courses')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#888',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              marginBottom: '12px',
+              padding: 0
+            }}
+          >
+            ← Back to Courses
           </button>
-          <div>
-            <h2>📹 Videos — {courseTitle}</h2>
-            <p style={{ color: 'var(--text-secondary)', marginTop: '4px', fontSize: '14px' }}>
-              {totalVideos} videos across {chapterKeys.length} chapters
-            </p>
-          </div>
+          <h1 style={{ color: '#0D2240', margin: 0, fontSize: '28px', fontWeight: '800' }}>
+            {courseTitle}
+          </h1>
+          <p style={{ color: '#888', margin: '4px 0 0', fontSize: '14px' }}>
+            {totalVideos} videos across {totalChapters} chapters
+          </p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="primary-button" onClick={() => handleOpenChapterModal()} style={{ backgroundColor: '#F5A623', color: '#0D2240' }}>
-            <Plus size={18} />
-            <span>Add Chapter</span>
+          <button
+            onClick={() => {
+              setChapterTitle('');
+              setShowChapterModal(true);
+            }}
+            style={{
+              padding: '12px 24px',
+              backgroundColor: 'white',
+              color: '#0D2240',
+              border: '1px solid #E5E5E5',
+              borderRadius: '50px',
+              fontSize: '14px',
+              fontWeight: '700',
+              cursor: 'pointer'
+            }}
+          >
+            + Add Chapter
           </button>
-          <button className="primary-button" onClick={() => handleOpenVideoModal()}>
-            <Plus size={18} />
-            <span>Add Video</span>
-          </button>
+          {chapters.length > 0 && (
+            <button
+              onClick={() => {
+                setVideoForm({
+                  ...defaultVideoForm,
+                  chapterTitle: chapters[0].title,
+                  order: getChapterVideos(chapters[0].title).length + 1
+                });
+                setShowVideoModal(true);
+              }}
+              style={{
+                padding: '12px 24px',
+                backgroundColor: '#0D2240',
+                color: 'white',
+                border: 'none',
+                borderRadius: '50px',
+                fontSize: '14px',
+                fontWeight: '700',
+                cursor: 'pointer'
+              }}
+            >
+              + Add Video
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Chapters list */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '24px' }}>
-        {loading ? (
-          <div className="loading-state">Loading video configuration...</div>
-        ) : chapterKeys.length > 0 ? (
-          chapterKeys.map((chapterTitle) => {
-            const vids = chapters[chapterTitle] || [];
-            const isExpanded = expandedChapters[chapterTitle] !== false;
-
+      {/* Chapters list / Empty State */}
+      {chapters.length === 0 ? (
+        <EmptyState 
+          onAddChapter={() => {
+            setChapterTitle('');
+            setShowChapterModal(true);
+          }}
+        />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {chapters.map((chapter, idx) => {
+            const chapterVideos = getChapterVideos(chapter.title);
+            const isExpanded = expandedChapters.includes(chapter.id);
+            
             return (
-              <div key={chapterTitle} style={{
-                backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-xl)',
-                boxShadow: 'var(--shadow-card)', overflow: 'hidden'
+              <div key={chapter.id} style={{
+                border: '1px solid #E5E5E5',
+                borderRadius: '16px',
+                backgroundColor: 'white',
+                overflow: 'hidden',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
               }}>
-                {/* Chapter Accordion Header */}
-                <div style={{
-                  padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  background: 'var(--bg-input)', borderBottom: isExpanded ? '1px solid var(--border-light)' : 'none',
-                  cursor: 'pointer'
-                }} onClick={() => handleToggleChapter(chapterTitle)}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }} onClick={e => e.stopPropagation()}>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: 'var(--primary)' }}>{chapterTitle}</h3>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600', padding: '2px 8px', background: 'var(--bg-card)', borderRadius: '4px', border: '1px solid var(--border-light)' }}>
-                      {vids.length} Video{vids.length !== 1 ? 's' : ''}
+                {/* Chapter header */}
+                <div
+                  onClick={() => toggleChapter(chapter.id)}
+                  style={{
+                    padding: '20px 24px',
+                    backgroundColor: '#F9F9F9',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderBottom: isExpanded ? '1px solid #E5E5E5' : 'none'
+                  }}
+                >
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}>
+                    <span style={{
+                      color: '#0D2240',
+                      fontWeight: '800',
+                      fontSize: '16px'
+                    }}>
+                      {chapter.title}
                     </span>
-                    <button className="icon-btn edit" onClick={() => handleOpenChapterModal(chapterTitle)} title="Rename Chapter" style={{ padding: '4px' }}>
-                      <Edit2 size={14} />
-                    </button>
-                    {vids.length === 0 && (
-                      <button className="icon-btn delete" onClick={() => handleChapterDelete(chapterTitle)} title="Delete Chapter" style={{ padding: '4px' }}>
-                        <Trash2 size={14} />
-                      </button>
-                    )}
+                    <span style={{
+                      color: '#888',
+                      fontSize: '13px',
+                      backgroundColor: 'white',
+                      padding: '4px 10px',
+                      borderRadius: '50px',
+                      border: '1px solid #E5E5E5',
+                      fontWeight: '600'
+                    }}>
+                      {chapterVideos.length} videos
+                    </span>
                   </div>
-                  <div>
-                    {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                  <div style={{
+                    display: 'flex',
+                    gap: '12px',
+                    alignItems: 'center'
+                  }} onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => {
+                        setVideoForm({
+                          ...defaultVideoForm,
+                          chapterTitle: chapter.title,
+                          order: chapterVideos.length + 1
+                        });
+                        setShowVideoModal(true);
+                      }}
+                      style={{
+                        backgroundColor: '#EEF2FF',
+                        color: '#0D2240',
+                        border: 'none',
+                        padding: '8px 16px',
+                        borderRadius: '50px',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + Add Video
+                    </button>
+                    <span 
+                      onClick={() => toggleChapter(chapter.id)}
+                      style={{
+                        color: '#888',
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        userSelect: 'none'
+                      }}
+                    >
+                      {isExpanded ? '▲' : '▼'}
+                    </span>
                   </div>
                 </div>
-
-                {/* Chapter Videos List */}
+                
+                {/* Videos list */}
                 {isExpanded && (
-                  <div style={{ padding: '0' }}>
-                    {vids.length > 0 ? (
-                      <table className="data-table" style={{ borderCollapse: 'collapse', width: '100%' }}>
-                        <tbody>
-                          {vids.map((video, idx) => (
-                            <tr key={video.id}>
-                              <td style={{ width: '40px', paddingLeft: '24px', paddingRight: '0', color: 'var(--text-secondary)' }}>
-                                <GripVertical size={16} style={{ cursor: 'grab' }} />
-                              </td>
-                              <td style={{ width: '40px', paddingLeft: '8px', paddingRight: '0', fontWeight: '700', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                                {idx + 1}
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                  <div style={{
-                                    width: '40px', height: '40px', borderRadius: '8px', backgroundColor: 'var(--bg-main)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)'
-                                  }}>
-                                    <Play size={16} fill="currentColor" />
-                                  </div>
-                                  <div>
-                                    <div className="font-medium" style={{ fontSize: '14px' }}>{video.title}</div>
-                                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {video.description || 'No description provided'}
-                                    </div>
-                                  </div>
-                                </div>
-                              </td>
-                              <td>
-                                <span style={{ fontSize: '12px', fontWeight: '600', padding: '4px 8px', background: 'var(--bg-main)', borderRadius: '4px' }}>
-                                  ⏱ {video.duration} min
-                                </span>
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                  {video.isFree ? (
-                                    <span style={{ backgroundColor: 'var(--success)20', color: 'var(--success)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>
-                                      FREE PREVIEW
-                                    </span>
-                                  ) : (
-                                    <span style={{ backgroundColor: 'var(--primary)20', color: 'var(--primary)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>
-                                      LOCKED
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="actions-cell" style={{ paddingRight: '24px' }}>
-                                <button className="icon-btn edit" onClick={() => handleOpenVideoModal(video)} title="Edit Video">
-                                  <Edit2 size={16} />
-                                </button>
-                                <button className="icon-btn delete" onClick={() => handleVideoDelete(video.id)} title="Delete Video">
-                                  <Trash2 size={16} />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
-                        No videos in this chapter. Click "+ Add Video" to include content.
+                  <div>
+                    {chapterVideos.length === 0 ? (
+                      <div style={{
+                        padding: '32px',
+                        textAlign: 'center',
+                        color: '#888',
+                        fontSize: '14px'
+                      }}>
+                        No videos yet. Click "+ Add Video" above to add your first video to this chapter.
                       </div>
+                    ) : (
+                      chapterVideos.map((video, vIdx) => (
+                        <div key={video.id} style={{
+                          padding: '16px 24px',
+                          borderTop: '1px solid #F0F0F0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '16px'
+                        }}>
+                          <span style={{
+                            color: '#888',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            minWidth: '24px'
+                          }}>
+                            {vIdx + 1}
+                          </span>
+                          <span style={{ fontSize: '20px' }}>📺</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{
+                              fontWeight: '700',
+                              color: '#0D2240',
+                              fontSize: '14px'
+                            }}>
+                              {video.title}
+                            </div>
+                            {video.description && (
+                              <div style={{
+                                color: '#888',
+                                fontSize: '12px',
+                                marginTop: '2px'
+                              }}>
+                                {video.description}
+                              </div>
+                            )}
+                          </div>
+                          {video.isFree && (
+                            <span style={{
+                              backgroundColor: '#DCFCE7',
+                              color: '#16A34A',
+                              padding: '4px 10px',
+                              borderRadius: '50px',
+                              fontSize: '11px',
+                              fontWeight: '700'
+                            }}>FREE</span>
+                          )}
+                          {video.duration > 0 && (
+                            <span style={{
+                              color: '#888',
+                              fontSize: '13px',
+                              fontWeight: '500',
+                              backgroundColor: '#F9F9F9',
+                              padding: '4px 10px',
+                              borderRadius: '50px',
+                              border: '1px solid #F0F0F0'
+                            }}>
+                              {video.duration} min
+                            </span>
+                          )}
+                          <button
+                            onClick={() => {
+                              setEditingVideo(video);
+                              setVideoForm({
+                                title: video.title,
+                                chapterTitle: video.chapterTitle,
+                                description: video.description || '',
+                                videoUrl: video.videoUrl,
+                                duration: video.duration || '',
+                                order: video.order || '',
+                                isFree: video.isFree || false,
+                                isLocked: video.isLocked ?? true
+                              });
+                              setShowVideoModal(true);
+                            }}
+                            style={editBtnStyle}
+                          >✏️</button>
+                          <button
+                            onClick={() => deleteVideo(video.id)}
+                            style={deleteBtnStyle}
+                          >🗑️</button>
+                        </div>
+                      ))
                     )}
                   </div>
                 )}
               </div>
             );
-          })
-        ) : (
-          <div className="table-container" style={{ padding: '64px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-            <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: 'var(--bg-main)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
-              <Video size={24} />
-            </div>
-            <div>
-              <h3 style={{ fontSize: '18px', color: 'var(--primary)' }}>No content yet</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
-                Add your first chapter to get started building this course structure.
-              </p>
-            </div>
-            <button className="primary-button" onClick={() => handleOpenChapterModal()} style={{ marginTop: '8px' }}>
-              <Plus size={18} />
-              <span>Add First Chapter</span>
-            </button>
-          </div>
-        )}
-      </div>
+          })}
+        </div>
+      )}
 
       {/* CHAPTER MODAL */}
       {showChapterModal && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '400px' }}>
-            <div className="modal-header">
-              <h3>{editingChapterOldName ? 'Rename Chapter' : 'Add Chapter'}</h3>
-              <button className="close-btn" onClick={() => setShowChapterModal(false)}>
-                <X size={20} />
+        <div style={overlayStyle}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            padding: '32px',
+            width: '480px',
+            maxWidth: '90vw'
+          }}>
+            <h2 style={{
+              color: '#0D2240',
+              margin: '0 0 8px',
+              fontSize: '20px',
+              fontWeight: '800'
+            }}>
+              Add New Chapter
+            </h2>
+            <p style={{
+              color: '#888',
+              fontSize: '14px',
+              margin: '0 0 24px'
+            }}>
+              Chapters organize your course videos into sections
+            </p>
+            
+            <label style={{
+              display: 'block',
+              color: '#444',
+              fontSize: '13px',
+              fontWeight: '600',
+              marginBottom: '6px'
+            }}>
+              Chapter Title *
+            </label>
+            <input
+              type="text"
+              value={chapterTitle}
+              onChange={e => setChapterTitle(e.target.value)}
+              placeholder="e.g. Chapter 1: Introduction to Humanities"
+              autoFocus
+              style={inputStyle}
+            />
+            <p style={{
+              color: '#888',
+              fontSize: '12px',
+              margin: '0 0 24px'
+            }}>
+              Examples: "Chapter 1: Ancient History", "Unit 2: World Wars", "Section 3: Indian Constitution"
+            </p>
+            
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={handleAddChapter}
+                disabled={saving || !chapterTitle.trim()}
+                style={{
+                  flex: 1,
+                  padding: '14px',
+                  backgroundColor: saving ? '#888' : '#0D2240',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50px',
+                  fontSize: '15px',
+                  fontWeight: '700',
+                  cursor: saving ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {saving ? 'Adding...' : 'Add Chapter'}
+              </button>
+              <button
+                onClick={() => setShowChapterModal(false)}
+                style={{
+                  flex: 1,
+                  padding: '14px',
+                  backgroundColor: 'white',
+                  color: '#888',
+                  border: '1px solid #E5E5E5',
+                  borderRadius: '50px',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
               </button>
             </div>
-            <form onSubmit={handleChapterSubmit} className="modal-form">
-              <div className="form-group">
-                <label>Chapter Title *</label>
-                <input
-                  required
-                  value={chapterModalTitle}
-                  onChange={e => setChapterModalTitle(e.target.value)}
-                  placeholder="e.g. Chapter 1: Introduction"
-                />
-              </div>
-              <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)', paddingTop: '20px', margin: '0 -32px', paddingLeft: '32px', paddingRight: '32px' }}>
-                <button type="button" className="secondary-button" onClick={() => setShowChapterModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="primary-button">
-                  <span>Save Chapter</span>
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
 
       {/* VIDEO MODAL */}
       {showVideoModal && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '640px' }}>
-            <div className="modal-header">
-              <h3>{editingVideo ? 'Edit Video Details' : 'Add Video to Course'}</h3>
-              <button className="close-btn" onClick={() => setShowVideoModal(false)}>
-                <X size={20} />
+        <div style={overlayStyle}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            padding: '32px',
+            width: '600px',
+            maxWidth: '90vw',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            <h2 style={modalTitleStyle}>
+              {editingVideo ? 'Edit Video' : 'Add New Video'}
+            </h2>
+            
+            {/* Title */}
+            <FormField label="Video Title *">
+              <input
+                value={videoForm.title}
+                onChange={e => setVideoForm({
+                  ...videoForm, 
+                  title: e.target.value})}
+                placeholder="e.g. Introduction to Ancient History"
+                style={inputStyle}
+              />
+            </FormField>
+            
+            {/* Chapter dropdown */}
+            <FormField label="Chapter *">
+              <select
+                value={videoForm.chapterTitle}
+                onChange={e => setVideoForm({
+                  ...videoForm,
+                  chapterTitle: e.target.value})}
+                style={inputStyle}
+              >
+                <option value="">
+                  Select a chapter
+                </option>
+                {chapters.map(ch => (
+                  <option 
+                    key={ch.id}
+                    value={ch.title}>
+                    {ch.title}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            
+            {/* YouTube URL */}
+            <FormField label="YouTube Video URL *">
+              <input
+                value={videoForm.videoUrl}
+                onChange={e => setVideoForm({
+                  ...videoForm,
+                  videoUrl: e.target.value})}
+                placeholder="https://youtube.com/watch?v=... or https://youtu.be/..."
+                style={inputStyle}
+              />
+              {/* URL validation feedback */}
+              {videoForm.videoUrl && (
+                <p style={{
+                  color: getYouTubeId(videoForm.videoUrl) ? '#22C55E' : '#EF4444',
+                  fontSize: '12px',
+                  marginTop: '4px'
+                }}>
+                  {getYouTubeId(videoForm.videoUrl)
+                    ? '✅ Valid YouTube URL'
+                    : '❌ Invalid URL — paste a YouTube link'}
+                </p>
+              )}
+              {/* Thumbnail preview */}
+              {youtubeThumbnail && (
+                <img
+                  src={youtubeThumbnail}
+                  alt="Video thumbnail"
+                  style={{
+                    width: '200px',
+                    height: '112px',
+                    objectFit: 'cover',
+                    borderRadius: '8px',
+                    marginTop: '8px'
+                  }}
+                />
+              )}
+            </FormField>
+            
+            {/* Description */}
+            <FormField label="Description (optional)">
+              <textarea
+                value={videoForm.description}
+                onChange={e => setVideoForm({
+                  ...videoForm,
+                  description: e.target.value})}
+                placeholder="Brief note about what this video covers..."
+                rows={2}
+                style={{
+                  ...inputStyle,
+                  height: 'auto',
+                  resize: 'vertical'
+                }}
+              />
+            </FormField>
+            
+            {/* Duration + Order (2 columns) */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '16px'
+            }}>
+              <FormField label="Duration (minutes)">
+                <input
+                  type="number"
+                  value={videoForm.duration}
+                  onChange={e => setVideoForm({
+                    ...videoForm,
+                    duration: e.target.value})}
+                  placeholder="e.g. 45"
+                  min="1"
+                  style={inputStyle}
+                />
+              </FormField>
+              <FormField label="Order in Chapter">
+                <input
+                  type="number"
+                  value={videoForm.order}
+                  onChange={e => setVideoForm({
+                    ...videoForm,
+                    order: e.target.value})}
+                  placeholder="e.g. 1"
+                  min="1"
+                  style={inputStyle}
+                />
+              </FormField>
+            </div>
+            
+            {/* Toggles */}
+            <div style={{
+              display: 'flex',
+              gap: '24px',
+              marginBottom: '24px',
+              flexWrap: 'wrap'
+            }}>
+              <label style={toggleLabelStyle}>
+                <input
+                  type="checkbox"
+                  checked={videoForm.isFree}
+                  onChange={e => setVideoForm({
+                    ...videoForm,
+                    isFree: e.target.checked,
+                    isLocked: !e.target.checked
+                  })}
+                />
+                <span>Free Preview</span>
+                <span style={{
+                  backgroundColor: '#DCFCE7',
+                  color: '#16A34A',
+                  padding: '2px 8px',
+                  borderRadius: '50px',
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  display: videoForm.isFree ? 'inline' : 'none'
+                }}>FREE</span>
+              </label>
+            </div>
+            
+            {/* Save + Cancel */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={handleSaveVideo}
+                disabled={savingVideo ||
+                  !videoForm.title.trim() ||
+                  !videoForm.chapterTitle ||
+                  !getYouTubeId(videoForm.videoUrl)}
+                style={{
+                  flex: 1, padding: '14px',
+                  backgroundColor: '#0D2240',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50px',
+                  fontWeight: '700',
+                  fontSize: '15px',
+                  cursor: 'pointer',
+                  opacity: savingVideo ? 0.7 : 1
+                }}
+              >
+                {savingVideo ? 'Saving...' : (editingVideo ? 'Update Video' : 'Add Video')}
+              </button>
+              <button
+                onClick={() => {
+                  setShowVideoModal(false);
+                  setEditingVideo(null);
+                }}
+                style={{
+                  flex: 1, padding: '14px',
+                  backgroundColor: 'white',
+                  color: '#888',
+                  border: '1px solid #E5E5E5',
+                  borderRadius: '50px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
               </button>
             </div>
-            <form onSubmit={handleVideoSubmit} className="modal-form" style={{ maxHeight: 'calc(90vh - 80px)', overflowY: 'auto' }}>
-              
-              {/* SECTION 1 — Basic Info */}
-              <div style={{ marginBottom: '24px', borderBottom: '1px solid var(--border-light)', paddingBottom: '16px' }}>
-                <h4 style={{ fontSize: '14px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '16px', letterSpacing: '0.5px' }}>Section 1: Basic Info</h4>
-                
-                <div className="form-group">
-                  <label>Video Title *</label>
-                  <input
-                    required
-                    value={videoFormData.title}
-                    onChange={e => setVideoFormData({ ...videoFormData, title: e.target.value })}
-                    placeholder="e.g. Introduction to Humanities"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Chapter *</label>
-                  {!showInlineChapterInput ? (
-                    <select
-                      value={videoFormData.chapterTitle}
-                      onChange={e => {
-                        if (e.target.value === '__add_new__') {
-                          setShowInlineChapterInput(true);
-                        } else {
-                          setVideoFormData({ ...videoFormData, chapterTitle: e.target.value });
-                        }
-                      }}
-                      required
-                    >
-                      <option value="" disabled>Select Chapter</option>
-                      {chapterKeys.map(ch => (
-                        <option key={ch} value={ch}>{ch}</option>
-                      ))}
-                      <option value="__add_new__" style={{ color: 'var(--accent)', fontWeight: '700' }}>+ Add New Chapter</option>
-                    </select>
-                  ) : (
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <input
-                        required
-                        value={inlineChapterName}
-                        onChange={e => setInlineChapterName(e.target.value)}
-                        placeholder="Type new chapter name..."
-                        style={{ flex: 1 }}
-                      />
-                      <button type="button" className="secondary-button" onClick={() => { setShowInlineChapterInput(false); setInlineChapterName(''); }} style={{ padding: '8px 12px' }}>
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label>Description</label>
-                  <textarea
-                    rows="2"
-                    value={videoFormData.description}
-                    onChange={e => setVideoFormData({ ...videoFormData, description: e.target.value })}
-                    placeholder="Brief note about what this video covers..."
-                  ></textarea>
-                </div>
-              </div>
-
-              {/* SECTION 2 — Video Source */}
-              <div style={{ marginBottom: '24px', borderBottom: '1px solid var(--border-light)', paddingBottom: '16px' }}>
-                <h4 style={{ fontSize: '14px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '16px', letterSpacing: '0.5px' }}>Section 2: Video Source</h4>
-                
-                <div className="form-group">
-                  <label>YouTube Video URL *</label>
-                  <input
-                    required
-                    value={videoFormData.videoUrl}
-                    onChange={e => setVideoFormData({ ...videoFormData, videoUrl: e.target.value })}
-                    placeholder="https://youtube.com/watch?v=... OR https://youtu.be/..."
-                  />
-                  <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    Paste any YouTube link — watch, live, or short URL. The app will convert it automatically.
-                  </p>
-                </div>
-
-                {/* URL Preview */}
-                {videoFormData.videoUrl && (
-                  <div style={{ display: 'flex', gap: '16px', alignItems: 'center', backgroundColor: 'var(--bg-input)', padding: '12px', borderRadius: 'var(--radius-lg)' }}>
-                    {ytThumb ? (
-                      <>
-                        <img src={ytThumb} width={120} height={68} style={{ borderRadius: '6px', objectFit: 'cover' }} alt="YouTube Preview" />
-                        <div>
-                          <div style={{ color: 'var(--success)', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <CheckCircle2 size={14} />
-                            <span>Valid YouTube URL</span>
-                          </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                            Video ID: {ytId}
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <AlertTriangle size={20} style={{ color: 'var(--error)' }} />
-                        <span style={{ fontSize: '12px', color: 'var(--error)', fontWeight: '600' }}>Invalid YouTube URL formatting</span>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* SECTION 3 — Video Settings */}
-              <div>
-                <h4 style={{ fontSize: '14px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '16px', letterSpacing: '0.5px' }}>Section 3: Video Settings</h4>
-                
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Duration (minutes)</label>
-                    <input
-                      type="number"
-                      required
-                      value={videoFormData.duration}
-                      onChange={e => setVideoFormData({ ...videoFormData, duration: e.target.value })}
-                      placeholder="e.g. 45"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Video Order in Chapter</label>
-                    <input
-                      type="number"
-                      required
-                      value={videoFormData.order}
-                      onChange={e => setVideoFormData({ ...videoFormData, order: e.target.value })}
-                      placeholder="e.g. 1"
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '32px', marginTop: '16px', flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}>
-                    <input
-                      type="checkbox"
-                      checked={videoFormData.isFree}
-                      onChange={e => {
-                        const val = e.target.checked;
-                        setVideoFormData({
-                          ...videoFormData,
-                          isFree: val,
-                          isLocked: val ? false : videoFormData.isLocked // Mutual exclusion
-                        });
-                      }}
-                      style={{ width: '18px', height: '18px', accentColor: 'var(--accent)' }}
-                    />
-                    <span>Free Preview</span>
-                    {videoFormData.isFree && (
-                      <span style={{ backgroundColor: 'var(--success)20', color: 'var(--success)', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', marginLeft: '4px' }}>
-                        FREE
-                      </span>
-                    )}
-                  </label>
-
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}>
-                    <input
-                      type="checkbox"
-                      checked={videoFormData.isLocked}
-                      disabled={videoFormData.isFree} // If Free Preview is ON, Locked is locked to OFF
-                      onChange={e => setVideoFormData({ ...videoFormData, isLocked: e.target.checked })}
-                      style={{ width: '18px', height: '18px', accentColor: 'var(--accent)' }}
-                    />
-                    <span>Locked Video</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)', paddingTop: '24px', margin: '24px -32px 0 -32px', paddingLeft: '32px', paddingRight: '32px' }}>
-                <button type="button" className="secondary-button" onClick={() => setShowVideoModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="primary-button">
-                  <span>{editingVideo ? 'Update Video' : 'Add Video'}</span>
-                </button>
-              </div>
-
-            </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }
