@@ -5,9 +5,9 @@ import {
   updateDoc, deleteDoc, doc,
   serverTimestamp, orderBy, query
 } from 'firebase/firestore';
-import { Plus, Edit2, Trash2, X, Search, CheckCircle2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Search, CheckCircle2, Video } from 'lucide-react';
 
-export default function CoursesManagement() {
+export default function CoursesManagement({ setPage, setPageParams }) {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -255,6 +255,12 @@ export default function CoursesManagement() {
                       </button>
                     </td>
                     <td className="actions-cell">
+                      <button className="icon-btn" style={{ color: 'var(--accent)' }} onClick={() => {
+                        setPageParams({ courseId: course.id, courseTitle: course.title });
+                        setPage('course-videos');
+                      }} title="Manage Videos">
+                        <Video size={16} />
+                      </button>
                       <button className="icon-btn edit" onClick={() => handleEdit(course)}>
                         <Edit2 size={16} />
                       </button>

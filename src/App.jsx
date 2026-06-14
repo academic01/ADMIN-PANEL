@@ -12,6 +12,7 @@ import TestsManagement from './pages/TestsManagement';
 import NotificationsManagement from './pages/NotificationsManagement';
 import PaymentsManagement from './pages/PaymentsManagement';
 import DoubtsManagement from './pages/DoubtsManagement';
+import CourseVideosPage from './pages/CourseVideos';
 import { LayoutDashboard, BookOpen, Video, ClipboardList, MessageSquare, Users, Bell, CreditCard, Settings, LogOut } from 'lucide-react';
 
 const navItems = [
@@ -31,6 +32,7 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activePage, setActivePage] = useState('dashboard');
+  const [pageParams, setPageParams] = useState({});
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -127,7 +129,7 @@ export default function App() {
         
         <div className="content-area">
           {activePage === 'dashboard' && <DashboardOverview setPage={setActivePage} />}
-          {activePage === 'courses' && <CoursesManagement />}
+          {activePage === 'courses' && <CoursesManagement setPage={setActivePage} setPageParams={setPageParams} />}
           {activePage === 'live' && <LiveClasses />}
           {activePage === 'students' && <StudentsManagement />}
           {activePage === 'settings' && <SettingsManagement />}
@@ -135,6 +137,13 @@ export default function App() {
           {activePage === 'doubts' && <DoubtsManagement />}
           {activePage === 'notifications' && <NotificationsManagement />}
           {activePage === 'payments' && <PaymentsManagement />}
+          {activePage === 'course-videos' && (
+            <CourseVideosPage 
+              courseId={pageParams.courseId} 
+              courseTitle={pageParams.courseTitle} 
+              setPage={setActivePage} 
+            />
+          )}
         </div>
       </main>
     </div>
