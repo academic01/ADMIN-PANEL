@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { Settings, Image, Megaphone, Share2, Save, Plus, Trash2 } from 'lucide-react';
+import { Settings, Image, Megaphone, Share2, Save, Plus, Trash2, CreditCard } from 'lucide-react';
 
 export default function SettingsManagement() {
   const [activeTab, setActiveTab] = useState('general');
@@ -44,6 +44,23 @@ export default function SettingsManagement() {
     instagram: '',
     facebook: '',
     telegram: ''
+  });
+
+  // Payment Settings Form State
+  const [paymentSettings, setPaymentSettings] = useState({
+    upiId: '',
+    upiName: '',
+    upiQrImageUrl: '',
+    bankDetails: {
+      accountName: '',
+      accountNumber: '',
+      ifscCode: '',
+      bankName: '',
+      branchName: ''
+    },
+    paymentInstructions: '',
+    whatsappForPayment: '',
+    isPaymentEnabled: true
   });
 
   // New Ticker item helper
@@ -100,6 +117,22 @@ export default function SettingsManagement() {
           facebook: data.socialLinks?.facebook || data.facebook || '',
           telegram: data.socialLinks?.telegram || data.telegram || ''
         });
+
+        setPaymentSettings({
+          upiId: data.paymentSettings?.upiId || '',
+          upiName: data.paymentSettings?.upiName || '',
+          upiQrImageUrl: data.paymentSettings?.upiQrImageUrl || '',
+          bankDetails: {
+            accountName: data.paymentSettings?.bankDetails?.accountName || '',
+            accountNumber: data.paymentSettings?.bankDetails?.accountNumber || '',
+            ifscCode: data.paymentSettings?.bankDetails?.ifscCode || '',
+            bankName: data.paymentSettings?.bankDetails?.bankName || '',
+            branchName: data.paymentSettings?.bankDetails?.branchName || ''
+          },
+          paymentInstructions: data.paymentSettings?.paymentInstructions || '',
+          whatsappForPayment: data.paymentSettings?.whatsappForPayment || '',
+          isPaymentEnabled: data.paymentSettings?.isPaymentEnabled !== false
+        });
       }
     } catch (e) {
       console.error("Error loading settings:", e);
@@ -147,6 +180,25 @@ export default function SettingsManagement() {
         telegram: socials.telegram || ''
       }
     });
+  };
+
+  const handlePaymentSubmit = (e) => {
+    e.preventDefault();
+    saveTabSettings({ paymentSettings });
+  };
+
+  const handleQrUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPaymentSettings(prev => ({
+        ...prev,
+        upiQrImageUrl: reader.result
+      }));
+    };
+    reader.readAsDataURL(file);
   };
 
   const addTickerItem = () => {
@@ -197,7 +249,8 @@ export default function SettingsManagement() {
           { id: 'general', label: 'General', icon: Settings },
           { id: 'hero', label: 'Hero & Banners', icon: Image },
           { id: 'announcements', label: 'Announcements', icon: Megaphone },
-          { id: 'socials', label: 'Social Links', icon: Share2 }
+          { id: 'socials', label: 'Social Links', icon: Share2 },
+          { id: 'payment', label: 'Payment Settings', icon: CreditCard }
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -467,6 +520,178 @@ export default function SettingsManagement() {
             <button type="submit" className="primary-button" style={{ marginTop: '16px' }}>
               <Save size={18} />
               <span>Save Social Links</span>
+            </button>
+          </form>
+        )}
+
+        {activeTab === 'payment' && (
+          <form onSubmit={handlePaymentSubmit}>
+            {/* Section 1 — UPI Details */}
+            <h4 style={{ fontSize: '15px', color: 'var(--primary)', marginBottom: '16px', fontWeight: '700', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
+              Section 1 — UPI Details
+            </h4>
+            <div className="form-group">
+              <label>UPI ID *</label>
+              <input 
+                type="text" 
+                required
+                value={paymentSettings.upiId} 
+                onChange={(e) => setPaymentSettings({ ...paymentSettings, upiId: e.target.value })} 
+                placeholder="e.g. yourname@paytm or yourname@phonepe"
+              />
+            </div>
+            <div className="form-group">
+              <label>UPI Display Name *</label>
+              <input 
+                type="text" 
+                required
+                value={paymentSettings.upiName} 
+                onChange={(e) => setPaymentSettings({ ...paymentSettings, upiName: e.target.value })} 
+                placeholder="e.g. Aakash Academics"
+              />
+            </div>
+            
+            <div className="form-group" style={{ marginBottom: '24px' }}>
+              <label>Upload QR Code Image</label>
+              <input 
+                type="file" 
+                accept="image/*"
+                onChange={handleQrUpload}
+                style={{ padding: '8px 0', border: 'none' }}
+              />
+              {paymentSettings.upiQrImageUrl && (
+                <div style={{ marginTop: '12px' }}>
+                  <img 
+                    src={paymentSettings.upiQrImageUrl} 
+                    width={200} 
+                    height={200} 
+                    style={{ borderRadius: '8px', objectFit: 'contain', border: '1px solid var(--border-light)' }}
+                    alt="UPI QR Code Preview" 
+                  />
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    This QR will be shown to students
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Section 2 — Bank Details */}
+            <h4 style={{ fontSize: '15px', color: 'var(--primary)', marginTop: '24px', marginBottom: '16px', fontWeight: '700', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
+              Section 2 — Bank Details (Optional)
+            </h4>
+            <div className="form-group">
+              <label>Account Holder Name</label>
+              <input 
+                type="text" 
+                value={paymentSettings.bankDetails.accountName} 
+                onChange={(e) => setPaymentSettings({
+                  ...paymentSettings,
+                  bankDetails: { ...paymentSettings.bankDetails, accountName: e.target.value }
+                })} 
+                placeholder="e.g. Aakash Academics Private Limited"
+              />
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Account Number</label>
+                <input 
+                  type="text" 
+                  value={paymentSettings.bankDetails.accountNumber} 
+                  onChange={(e) => setPaymentSettings({
+                    ...paymentSettings,
+                    bankDetails: { ...paymentSettings.bankDetails, accountNumber: e.target.value }
+                  })} 
+                  placeholder="e.g. 1234567890"
+                />
+              </div>
+              <div className="form-group">
+                <label>IFSC Code</label>
+                <input 
+                  type="text" 
+                  value={paymentSettings.bankDetails.ifscCode} 
+                  onChange={(e) => setPaymentSettings({
+                    ...paymentSettings,
+                    bankDetails: { ...paymentSettings.bankDetails, ifscCode: e.target.value }
+                  })} 
+                  placeholder="e.g. SBIN0001234"
+                />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Bank Name</label>
+                <input 
+                  type="text" 
+                  value={paymentSettings.bankDetails.bankName} 
+                  onChange={(e) => setPaymentSettings({
+                    ...paymentSettings,
+                    bankDetails: { ...paymentSettings.bankDetails, bankName: e.target.value }
+                  })} 
+                  placeholder="e.g. State Bank of India"
+                />
+              </div>
+              <div className="form-group">
+                <label>Branch</label>
+                <input 
+                  type="text" 
+                  value={paymentSettings.bankDetails.branchName} 
+                  onChange={(e) => setPaymentSettings({
+                    ...paymentSettings,
+                    bankDetails: { ...paymentSettings.bankDetails, branchName: e.target.value }
+                  })} 
+                  placeholder="e.g. Connaught Place, New Delhi"
+                />
+              </div>
+            </div>
+
+            {/* Section 3 — Payment Instructions */}
+            <h4 style={{ fontSize: '15px', color: 'var(--primary)', marginTop: '24px', marginBottom: '16px', fontWeight: '700', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
+              Section 3 — Payment Instructions
+            </h4>
+            <div className="form-group">
+              <label>Payment Instructions *</label>
+              <textarea 
+                rows="4" 
+                required
+                value={paymentSettings.paymentInstructions} 
+                onChange={(e) => setPaymentSettings({ ...paymentSettings, paymentInstructions: e.target.value })} 
+                placeholder="1. Pay the amount via UPI or scan QR code&#10;2. Take screenshot of payment&#10;3. Send screenshot to WhatsApp...&#10;4. Your course will be activated within 2 hours"
+                style={{ width: '100%', padding: '12px 16px', border: '1px solid #E5E5E5', borderRadius: '10px', fontSize: '14px', outline: 'none', boxSizing: 'border-box', height: 'auto', resize: 'vertical' }}
+              />
+            </div>
+            <div className="form-group">
+              <label>WhatsApp Number for Payment Proof *</label>
+              <input 
+                type="text" 
+                required
+                value={paymentSettings.whatsappForPayment} 
+                onChange={(e) => setPaymentSettings({ ...paymentSettings, whatsappForPayment: e.target.value })} 
+                placeholder="e.g. 919876543210 (include country code, no space or +)"
+              />
+            </div>
+
+            {/* Section 4 — Toggle */}
+            <h4 style={{ fontSize: '15px', color: 'var(--primary)', marginTop: '24px', marginBottom: '16px', fontWeight: '700', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
+              Section 4 — Toggle
+            </h4>
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '14px' }}>
+                <input 
+                  type="checkbox" 
+                  checked={paymentSettings.isPaymentEnabled} 
+                  onChange={(e) => setPaymentSettings({ ...paymentSettings, isPaymentEnabled: e.target.checked })} 
+                  style={{ width: '18px', height: '18px', accentColor: 'var(--accent)' }}
+                />
+                Accept Payments
+              </label>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                If unchecked, students will see a "Payments temporarily unavailable" message.
+              </p>
+            </div>
+
+            <button type="submit" className="primary-button" style={{ marginTop: '24px' }}>
+              <Save size={18} />
+              <span>Save Payment Settings</span>
             </button>
           </form>
         )}

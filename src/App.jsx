@@ -13,17 +13,23 @@ import NotificationsManagement from './pages/NotificationsManagement';
 import PaymentsManagement from './pages/PaymentsManagement';
 import DoubtsManagement from './pages/DoubtsManagement';
 import CourseVideosPage from './pages/CourseVideos';
-import { LayoutDashboard, BookOpen, Video, ClipboardList, MessageSquare, Users, Bell, CreditCard, Settings, LogOut } from 'lucide-react';
+import PromoCodes from './pages/PromoCodes';
+import TestPackages from './pages/TestPackages';
+import Orders from './pages/Orders';
+import { LayoutDashboard, BookOpen, Video, ClipboardList, MessageSquare, Users, Bell, CreditCard, Settings, LogOut, Ticket, Package, Clipboard } from 'lucide-react';
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'courses', label: 'Courses', icon: BookOpen },
   { id: 'live', label: 'Live Classes', icon: Video },
   { id: 'tests', label: 'Tests', icon: ClipboardList },
+  { id: 'promocodes', label: 'Promo Codes', icon: Ticket },
+  { id: 'testpackages', label: 'Test Packages', icon: Package },
   { id: 'doubts', label: 'Doubts', icon: MessageSquare },
   { id: 'students', label: 'Students', icon: Users },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'payments', label: 'Payments', icon: CreditCard },
+  { id: 'orders', label: 'Orders', icon: Clipboard },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -134,9 +140,12 @@ export default function App() {
           {activePage === 'students' && <StudentsManagement />}
           {activePage === 'settings' && <SettingsManagement />}
           {activePage === 'tests' && <TestsManagement />}
+          {activePage === 'promocodes' && <PromoCodes />}
+          {activePage === 'testpackages' && <TestPackages />}
           {activePage === 'doubts' && <DoubtsManagement />}
           {activePage === 'notifications' && <NotificationsManagement />}
           {activePage === 'payments' && <PaymentsManagement />}
+          {activePage === 'orders' && <Orders />}
           {activePage === 'course-videos' && (
             <CourseVideosPage 
               courseId={pageParams.courseId} 
