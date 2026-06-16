@@ -30,6 +30,7 @@ export default function CoursesManagement({ setPage, setPageParams }) {
     isBestseller: false,
     isNew: true,
     totalVideos: 0,
+    totalNotes: 0,
     language: 'Hindi + English',
     tags: ''
   });
@@ -71,6 +72,7 @@ export default function CoursesManagement({ setPage, setPageParams }) {
       price: Number(formData.price),
       originalPrice: Number(formData.originalPrice),
       totalVideos: Number(formData.totalVideos),
+      totalNotes: Number(formData.totalNotes || 0),
       discountPercent: formData.originalPrice > 0
         ? Math.round((1 - formData.price / formData.originalPrice) * 100)
         : 0,
@@ -131,7 +133,7 @@ export default function CoursesManagement({ setPage, setPageParams }) {
       title: '', category: 'school', examType: '', subject: '', facultyName: '',
       description: '', shortDescription: '', price: 0, originalPrice: 0,
       isFree: false, status: 'active', isFeatured: false, isBestseller: false,
-      isNew: true, totalVideos: 0, language: 'Hindi + English', tags: ''
+      isNew: true, totalVideos: 0, totalNotes: 0, language: 'Hindi + English', tags: ''
     });
   };
 
@@ -203,7 +205,7 @@ export default function CoursesManagement({ setPage, setPageParams }) {
                     <td>
                       <div className="font-medium">{course.title}</div>
                       <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-                        {course.facultyName} • {course.totalVideos} videos
+                        {course.facultyName} • {course.totalVideos} videos • {course.totalNotes || 0} notes
                       </div>
                     </td>
                     <td>

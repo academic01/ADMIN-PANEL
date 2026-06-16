@@ -72,6 +72,39 @@ const defaultVideoForm = {
   isLocked: true
 };
 
+const defaultNoteForm = {
+  title: '',
+  chapterTitle: '',
+  description: '',
+  type: 'pdf',
+  fileUrl: '',
+  fileSize: '',
+  order: '',
+  isFree: false
+};
+
+const activeTabStyle = {
+  backgroundColor: '#0D2240',
+  color: 'white',
+  padding: '10px 24px',
+  borderRadius: '50px',
+  fontWeight: 700,
+  border: 'none',
+  cursor: 'pointer',
+  fontSize: '14px'
+};
+
+const inactiveTabStyle = {
+  backgroundColor: 'white',
+  color: '#888',
+  border: '1px solid #E5E5E5',
+  padding: '10px 24px',
+  borderRadius: '50px',
+  fontWeight: 600,
+  cursor: 'pointer',
+  fontSize: '14px'
+};
+
 function FormField({ label, children }) {
   return (
     <div style={{ marginBottom: '20px' }}>
@@ -143,8 +176,10 @@ function EmptyState({ onAddChapter }) {
 }
 
 export default function CourseVideos({ courseId, courseTitle, setPage }) {
+  const [activeTab, setActiveTab] = useState('videos'); // 'videos' or 'notes'
   const [chapters, setChapters] = useState([]);
   const [videos, setVideos] = useState([]);
+  const [notes, setNotes] = useState([]);
   const [expandedChapters, setExpandedChapters] = useState([]);
 
   // Chapter Modal State
@@ -157,6 +192,12 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
   const [editingVideo, setEditingVideo] = useState(null);
   const [savingVideo, setSavingVideo] = useState(false);
   const [videoForm, setVideoForm] = useState(defaultVideoForm);
+
+  // Note Modal State
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [editingNote, setEditingNote] = useState(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteForm, setNoteForm] = useState(defaultNoteForm);
 
   useEffect(() => {
     if (!courseId) return;
@@ -189,10 +230,25 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
         ...d.data()
       })));
     });
+
+    // Load notes for this course
+    const notesQuery = query(
+      collection(db, 'studyMaterials'),
+      where('courseId', '==', courseId)
+    );
+
+    const unsubNotes = onSnapshot(
+      notesQuery, (snap) => {
+      setNotes(snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      })));
+    });
     
     return () => {
       unsubChapters();
       unsubVideos();
+      unsubNotes();
     };
   }, [courseId]);
 
@@ -205,7 +261,17 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
         (a.order || 0) - (b.order || 0));
   };
 
+  // Helper: get notes for a chapter
+  const getNotesByChapter = (chapterTitle) => {
+    return notes
+      .filter(n => 
+        n.chapterTitle === chapterTitle)
+      .sort((a, b) => 
+        (a.order || 0) - (b.order || 0));
+  };
+
   const totalVideos = videos.length;
+  const totalNotes = notes.length;
   const totalChapters = chapters.length;
 
   const toggleChapter = (chapterId) => {
@@ -343,6 +409,83 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
     }
   };
 
+  // handleSaveNote function:
+  const handleSaveNote = async () => {
+    if (!noteForm.title.trim() ||
+        !noteForm.chapterTitle ||
+        !noteForm.fileUrl.trim())
+      return;
+
+    setSavingNote(true);
+
+    try {
+      const chapterIndex = chapters
+        .findIndex(ch => 
+          ch.title === 
+          noteForm.chapterTitle);
+
+      const noteData = {
+        courseId: courseId,
+        chapterTitle: noteForm.chapterTitle,
+        chapterIndex: chapterIndex >= 0 ? chapterIndex : 0,
+        title: noteForm.title.trim(),
+        description: noteForm.description.trim(),
+        type: noteForm.type,
+        fileUrl: noteForm.fileUrl.trim(),
+        fileSize: noteForm.fileSize.trim(),
+        order: Number(noteForm.order) || 1,
+        isFree: noteForm.isFree,
+      };
+
+      if (editingNote) {
+        await updateDoc(
+          doc(db, 'studyMaterials', editingNote.id),
+          {
+            ...noteData,
+            updatedAt: serverTimestamp()
+          });
+      } else {
+        await addDoc(
+          collection(db, 'studyMaterials'),
+          {
+            ...noteData,
+            downloads: 0,
+            createdAt: serverTimestamp()
+          });
+
+        // Increment course notes count
+        await updateDoc(
+          doc(db, 'courses', courseId),
+          { totalNotes: increment(1) }
+        );
+      }
+
+      setShowNoteModal(false);
+      setEditingNote(null);
+      setNoteForm(defaultNoteForm);
+    } catch (e) {
+      console.error('Save note:', e);
+      alert('Failed to save note: ' + e.message);
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  // Delete note function:
+  const deleteNote = async (noteId) => {
+    if (!window.confirm('Delete this study note?')) return;
+    try {
+      await deleteDoc(
+        doc(db, 'studyMaterials', noteId));
+      await updateDoc(
+        doc(db, 'courses', courseId),
+        { totalNotes: increment(-1) }
+      );
+    } catch (e) {
+      alert('Delete failed: ' + e.message);
+    }
+  };
+
   return (
     <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
       {/* Header */}
@@ -350,7 +493,7 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: '32px',
+        marginBottom: '24px',
         borderBottom: '1px solid #E5E5E5',
         paddingBottom: '24px'
       }}>
@@ -377,7 +520,10 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
             {courseTitle}
           </h1>
           <p style={{ color: '#888', margin: '4px 0 0', fontSize: '14px' }}>
-            {totalVideos} videos across {totalChapters} chapters
+            {activeTab === 'videos'
+              ? `${totalVideos} videos across ${totalChapters} chapters`
+              : `${totalNotes} study notes across ${totalChapters} chapters`
+            }
           </p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
@@ -399,7 +545,7 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
           >
             + Add Chapter
           </button>
-          {chapters.length > 0 && (
+          {chapters.length > 0 && activeTab === 'videos' && (
             <button
               onClick={() => {
                 setVideoForm({
@@ -423,7 +569,47 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
               + Add Video
             </button>
           )}
+          {chapters.length > 0 && activeTab === 'notes' && (
+            <button
+              onClick={() => {
+                setNoteForm({
+                  ...defaultNoteForm,
+                  chapterTitle: chapters[0].title,
+                  order: getNotesByChapter(chapters[0].title).length + 1
+                });
+                setShowNoteModal(true);
+              }}
+              style={{
+                padding: '12px 24px',
+                backgroundColor: '#0D2240',
+                color: 'white',
+                border: 'none',
+                borderRadius: '50px',
+                fontSize: '14px',
+                fontWeight: '700',
+                cursor: 'pointer'
+              }}
+            >
+              + Add Note
+            </button>
+          )}
         </div>
+      </div>
+
+      {/* Tabs UI bar */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+        <button
+          onClick={() => setActiveTab('videos')}
+          style={activeTab === 'videos' ? activeTabStyle : inactiveTabStyle}
+        >
+          📹 Videos
+        </button>
+        <button
+          onClick={() => setActiveTab('notes')}
+          style={activeTab === 'notes' ? activeTabStyle : inactiveTabStyle}
+        >
+          📄 Notes & Study Materials
+        </button>
       </div>
 
       {/* Chapters list / Empty State */}
@@ -436,8 +622,9 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {chapters.map((chapter, idx) => {
+          {chapters.map((chapter) => {
             const chapterVideos = getChapterVideos(chapter.title);
+            const chapterNotes = getNotesByChapter(chapter.title);
             const isExpanded = expandedChapters.includes(chapter.id);
             
             return (
@@ -482,7 +669,10 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
                       border: '1px solid #E5E5E5',
                       fontWeight: '600'
                     }}>
-                      {chapterVideos.length} videos
+                      {activeTab === 'videos'
+                        ? `${chapterVideos.length} videos`
+                        : `${chapterNotes.length} notes`
+                      }
                     </span>
                   </div>
                   <div style={{
@@ -492,12 +682,21 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
                   }} onClick={e => e.stopPropagation()}>
                     <button
                       onClick={() => {
-                        setVideoForm({
-                          ...defaultVideoForm,
-                          chapterTitle: chapter.title,
-                          order: chapterVideos.length + 1
-                        });
-                        setShowVideoModal(true);
+                        if (activeTab === 'videos') {
+                          setVideoForm({
+                            ...defaultVideoForm,
+                            chapterTitle: chapter.title,
+                            order: chapterVideos.length + 1
+                          });
+                          setShowVideoModal(true);
+                        } else {
+                          setNoteForm({
+                            ...defaultNoteForm,
+                            chapterTitle: chapter.title,
+                            order: chapterNotes.length + 1
+                          });
+                          setShowNoteModal(true);
+                        }
                       }}
                       style={{
                         backgroundColor: '#EEF2FF',
@@ -510,7 +709,7 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
                         cursor: 'pointer'
                       }}
                     >
-                      + Add Video
+                      {activeTab === 'videos' ? '+ Add Video' : '+ Add Note'}
                     </button>
                     <span 
                       onClick={() => toggleChapter(chapter.id)}
@@ -527,100 +726,221 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
                   </div>
                 </div>
                 
-                {/* Videos list */}
+                {/* Accordion Content Block */}
                 {isExpanded && (
                   <div>
-                    {chapterVideos.length === 0 ? (
-                      <div style={{
-                        padding: '32px',
-                        textAlign: 'center',
-                        color: '#888',
-                        fontSize: '14px'
-                      }}>
-                        No videos yet. Click "+ Add Video" above to add your first video to this chapter.
-                      </div>
-                    ) : (
-                      chapterVideos.map((video, vIdx) => (
-                        <div key={video.id} style={{
-                          padding: '16px 24px',
-                          borderTop: '1px solid #F0F0F0',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '16px'
+                    {activeTab === 'videos' ? (
+                      /* Videos List */
+                      chapterVideos.length === 0 ? (
+                        <div style={{
+                          padding: '32px',
+                          textAlign: 'center',
+                          color: '#888',
+                          fontSize: '14px'
                         }}>
-                          <span style={{
-                            color: '#888',
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            minWidth: '24px'
+                          No videos yet. Click "+ Add Video" above to add your first video to this chapter.
+                        </div>
+                      ) : (
+                        chapterVideos.map((video, vIdx) => (
+                          <div key={video.id} style={{
+                            padding: '16px 24px',
+                            borderTop: '1px solid #F0F0F0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '16px'
                           }}>
-                            {vIdx + 1}
-                          </span>
-                          <span style={{ fontSize: '20px' }}>📺</span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{
-                              fontWeight: '700',
-                              color: '#0D2240',
-                              fontSize: '14px'
-                            }}>
-                              {video.title}
-                            </div>
-                            {video.description && (
-                              <div style={{
-                                color: '#888',
-                                fontSize: '12px',
-                                marginTop: '2px'
-                              }}>
-                                {video.description}
-                              </div>
-                            )}
-                          </div>
-                          {video.isFree && (
-                            <span style={{
-                              backgroundColor: '#DCFCE7',
-                              color: '#16A34A',
-                              padding: '4px 10px',
-                              borderRadius: '50px',
-                              fontSize: '11px',
-                              fontWeight: '700'
-                            }}>FREE</span>
-                          )}
-                          {video.duration > 0 && (
                             <span style={{
                               color: '#888',
-                              fontSize: '13px',
-                              fontWeight: '500',
-                              backgroundColor: '#F9F9F9',
-                              padding: '4px 10px',
-                              borderRadius: '50px',
-                              border: '1px solid #F0F0F0'
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              minWidth: '24px'
                             }}>
-                              {video.duration} min
+                              {vIdx + 1}
                             </span>
-                          )}
-                          <button
-                            onClick={() => {
-                              setEditingVideo(video);
-                              setVideoForm({
-                                title: video.title,
-                                chapterTitle: video.chapterTitle,
-                                description: video.description || '',
-                                videoUrl: video.videoUrl,
-                                duration: video.duration || '',
-                                order: video.order || '',
-                                isFree: video.isFree || false,
-                                isLocked: video.isLocked ?? true
-                              });
-                              setShowVideoModal(true);
-                            }}
-                            style={editBtnStyle}
-                          >✏️</button>
-                          <button
-                            onClick={() => deleteVideo(video.id)}
-                            style={deleteBtnStyle}
-                          >🗑️</button>
+                            <span style={{ fontSize: '20px' }}>📺</span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{
+                                fontWeight: '700',
+                                color: '#0D2240',
+                                fontSize: '14px'
+                              }}>
+                                {video.title}
+                              </div>
+                              {video.description && (
+                                <div style={{
+                                  color: '#888',
+                                  fontSize: '12px',
+                                  marginTop: '2px'
+                                }}>
+                                  {video.description}
+                                </div>
+                              )}
+                            </div>
+                            {video.isFree && (
+                              <span style={{
+                                backgroundColor: '#DCFCE7',
+                                color: '#16A34A',
+                                padding: '4px 10px',
+                                borderRadius: '50px',
+                                fontSize: '11px',
+                                fontWeight: '700'
+                              }}>FREE</span>
+                            )}
+                            {video.duration > 0 && (
+                              <span style={{
+                                color: '#888',
+                                fontSize: '13px',
+                                fontWeight: '500',
+                                backgroundColor: '#F9F9F9',
+                                padding: '4px 10px',
+                                borderRadius: '50px',
+                                border: '1px solid #F0F0F0'
+                              }}>
+                                {video.duration} min
+                              </span>
+                            )}
+                            <button
+                              onClick={() => {
+                                setEditingVideo(video);
+                                setVideoForm({
+                                  title: video.title,
+                                  chapterTitle: video.chapterTitle,
+                                  description: video.description || '',
+                                  videoUrl: video.videoUrl,
+                                  duration: video.duration || '',
+                                  order: video.order || '',
+                                  isFree: video.isFree || false,
+                                  isLocked: video.isLocked ?? true
+                                });
+                                setShowVideoModal(true);
+                              }}
+                              style={editBtnStyle}
+                            >✏️</button>
+                            <button
+                              onClick={() => deleteVideo(video.id)}
+                              style={deleteBtnStyle}
+                            >🗑️</button>
+                          </div>
+                        ))
+                      )
+                    ) : (
+                      /* Notes List */
+                      chapterNotes.length === 0 ? (
+                        <div style={{
+                          padding: '32px',
+                          textAlign: 'center',
+                          color: '#888',
+                          fontSize: '14px'
+                        }}>
+                          No study notes yet. Click "+ Add Note" above to add materials to this chapter.
                         </div>
-                      ))
+                      ) : (
+                        chapterNotes.map((note, nIdx) => {
+                          let icon = '🔗';
+                          if (note.type === 'pdf') icon = '📕';
+                          else if (note.type === 'doc') icon = '📘';
+                          else if (note.type === 'image') icon = '🖼️';
+                          else if (note.type === 'link') icon = '🔗';
+
+                          return (
+                            <div key={note.id} style={{
+                              padding: '16px 24px',
+                              borderTop: '1px solid #F0F0F0',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '16px'
+                            }}>
+                              <span style={{
+                                color: '#888',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                minWidth: '24px'
+                              }}>
+                                {nIdx + 1}
+                              </span>
+                              <span style={{ fontSize: '20px' }} title={note.type}>{icon}</span>
+                              <div style={{ flex: 1 }}>
+                                <div style={{
+                                  fontWeight: '700',
+                                  color: '#0D2240',
+                                  fontSize: '14px'
+                                }}>
+                                  {note.title}
+                                </div>
+                                {note.description && (
+                                  <div style={{
+                                    color: '#888',
+                                    fontSize: '12px',
+                                    marginTop: '2px'
+                                  }}>
+                                    {note.description}
+                                  </div>
+                                )}
+                              </div>
+                              {note.fileSize && (
+                                <span style={{
+                                  backgroundColor: '#F3F4F6',
+                                  color: '#4B5563',
+                                  padding: '4px 10px',
+                                  borderRadius: '50px',
+                                  fontSize: '11px',
+                                  fontWeight: '600'
+                                }}>{note.fileSize}</span>
+                              )}
+                              {note.isFree && (
+                                <span style={{
+                                  backgroundColor: '#DCFCE7',
+                                  color: '#16A34A',
+                                  padding: '4px 10px',
+                                  borderRadius: '50px',
+                                  fontSize: '11px',
+                                  fontWeight: '700'
+                                }}>FREE</span>
+                              )}
+                              <a
+                                href={note.fileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  backgroundColor: '#EEF2FF',
+                                  color: '#0D2240',
+                                  border: 'none',
+                                  padding: '6px 14px',
+                                  borderRadius: '8px',
+                                  fontSize: '12px',
+                                  fontWeight: '600',
+                                  cursor: 'pointer',
+                                  textDecoration: 'none',
+                                  display: 'inline-block'
+                                }}
+                              >
+                                Open 🔗
+                              </a>
+                              <button
+                                onClick={() => {
+                                  setEditingNote(note);
+                                  setNoteForm({
+                                    title: note.title,
+                                    chapterTitle: note.chapterTitle,
+                                    description: note.description || '',
+                                    type: note.type || 'pdf',
+                                    fileUrl: note.fileUrl || '',
+                                    fileSize: note.fileSize || '',
+                                    order: note.order || '',
+                                    isFree: note.isFree || false
+                                  });
+                                  setShowNoteModal(true);
+                                }}
+                                style={editBtnStyle}
+                              >✏️</button>
+                              <button
+                                onClick={() => deleteNote(note.id)}
+                                style={deleteBtnStyle}
+                              >🗑️</button>
+                            </div>
+                          );
+                        })
+                      )
                     )}
                   </div>
                 )}
@@ -920,6 +1240,237 @@ export default function CourseVideos({ courseId, courseTitle, setPage }) {
                   color: '#888',
                   border: '1px solid #E5E5E5',
                   borderRadius: '50px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NOTE MODAL */}
+      {showNoteModal && (
+        <div style={overlayStyle}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            padding: '32px',
+            width: '600px',
+            maxWidth: '90vw',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            <h2 style={modalTitleStyle}>
+              {editingNote ? 'Edit Study Note' : 'Add New Note / Material'}
+            </h2>
+
+            {/* Note Title */}
+            <FormField label="Note Title *">
+              <input
+                value={noteForm.title}
+                onChange={e => setNoteForm({ ...noteForm, title: e.target.value })}
+                placeholder="e.g. Chapter 1 Notes — Ancient History"
+                style={inputStyle}
+              />
+            </FormField>
+
+            {/* Chapter dropdown */}
+            <FormField label="Chapter *">
+              <select
+                value={noteForm.chapterTitle}
+                onChange={e => setNoteForm({ ...noteForm, chapterTitle: e.target.value })}
+                style={inputStyle}
+              >
+                <option value="">Select a chapter</option>
+                {chapters.map(ch => (
+                  <option key={ch.id} value={ch.title}>
+                    {ch.title}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+
+            {/* Note Type button group selector */}
+            <FormField label="Note Type *">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                {[
+                  { type: 'pdf', label: 'PDF', icon: '📕' },
+                  { type: 'doc', label: 'Word Doc', icon: '📘' },
+                  { type: 'image', label: 'Image/JPG', icon: '🖼️' },
+                  { type: 'link', label: 'Web Link', icon: '🔗' }
+                ].map(t => {
+                  const isSelected = noteForm.type === t.type;
+                  return (
+                    <div
+                      key={t.type}
+                      onClick={() => setNoteForm({ ...noteForm, type: t.type })}
+                      style={{
+                        border: isSelected ? '2px solid #0D2240' : '1px solid #E5E5E5',
+                        backgroundColor: isSelected ? '#EEF2FF' : 'white',
+                        borderRadius: '12px',
+                        padding: '12px',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <span style={{ fontSize: '20px', display: 'block', marginBottom: '4px' }}>{t.icon}</span>
+                      <span style={{ fontSize: '12px', fontWeight: '700', color: '#0D2240' }}>{t.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </FormField>
+
+            {/* File / Link URL */}
+            <FormField label={`${noteForm.type === 'pdf' ? 'Google Drive PDF Link' : noteForm.type === 'doc' ? 'Google Drive Doc Link' : noteForm.type === 'image' ? 'Image URL or Drive Link' : 'Website URL'} *`}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  value={noteForm.fileUrl}
+                  onChange={e => setNoteForm({ ...noteForm, fileUrl: e.target.value })}
+                  placeholder={noteForm.type === 'link' ? 'https://...' : 'https://drive.google.com/...'}
+                  style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (noteForm.fileUrl) {
+                      window.open(noteForm.fileUrl, '_blank');
+                    } else {
+                      alert('Please enter a URL first.');
+                    }
+                  }}
+                  style={{
+                    padding: '0 16px',
+                    backgroundColor: '#EEF2FF',
+                    color: '#0D2240',
+                    border: '1px solid #0D2240',
+                    borderRadius: '10px',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Test Link
+                </button>
+              </div>
+              <p style={{ color: '#888', fontSize: '12px', margin: '6px 0 0', lineHeight: '1.4' }}>
+                How to get Google Drive link:
+                <br />
+                1. Upload file to Google Drive
+                <br />
+                2. Right-click → Share
+                <br />
+                3. Change to "Anyone with link"
+                <br />
+                4. Click "Copy link" and paste here
+              </p>
+            </FormField>
+
+            {/* Description */}
+            <FormField label="Description (optional)">
+              <textarea
+                value={noteForm.description}
+                onChange={e => setNoteForm({ ...noteForm, description: e.target.value })}
+                placeholder="Brief description about what these study notes cover..."
+                rows={2}
+                style={{
+                  ...inputStyle,
+                  height: 'auto',
+                  resize: 'vertical'
+                }}
+              />
+            </FormField>
+
+            {/* File Size & Order (2 columns) */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '16px'
+            }}>
+              <FormField label="File Size (e.g. 2.4 MB)">
+                <input
+                  type="text"
+                  value={noteForm.fileSize}
+                  onChange={e => setNoteForm({ ...noteForm, fileSize: e.target.value })}
+                  placeholder="e.g. 2.4 MB"
+                  style={inputStyle}
+                />
+              </FormField>
+              <FormField label="Order in Chapter">
+                <input
+                  type="number"
+                  value={noteForm.order}
+                  onChange={e => setNoteForm({ ...noteForm, order: e.target.value })}
+                  placeholder="e.g. 1"
+                  min="1"
+                  style={inputStyle}
+                />
+              </FormField>
+            </div>
+
+            {/* Toggles */}
+            <div style={{
+              display: 'flex',
+              gap: '24px',
+              marginBottom: '24px',
+              flexWrap: 'wrap'
+            }}>
+              <label style={toggleLabelStyle}>
+                <input
+                  type="checkbox"
+                  checked={noteForm.isFree}
+                  onChange={e => setNoteForm({ ...noteForm, isFree: e.target.checked })}
+                />
+                <span>Free Preview</span>
+                <span style={{
+                  backgroundColor: '#DCFCE7',
+                  color: '#16A34A',
+                  padding: '2px 8px',
+                  borderRadius: '50px',
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  display: noteForm.isFree ? 'inline' : 'none'
+                }}>FREE</span>
+              </label>
+            </div>
+
+            {/* Save + Cancel */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={handleSaveNote}
+                disabled={savingNote ||
+                  !noteForm.title.trim() ||
+                  !noteForm.chapterTitle ||
+                  !noteForm.fileUrl.trim()}
+                style={{
+                  flex: 1, padding: '14px',
+                  backgroundColor: (savingNote || !noteForm.title.trim() || !noteForm.chapterTitle || !noteForm.fileUrl.trim()) ? '#888' : '#0D2240',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50px',
+                  fontWeight: '700',
+                  fontSize: '15px',
+                  cursor: (savingNote || !noteForm.title.trim() || !noteForm.chapterTitle || !noteForm.fileUrl.trim()) ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {savingNote ? 'Saving...' : (editingNote ? 'Update Note' : 'Add Note')}
+              </button>
+              <button
+                onClick={() => {
+                  setShowNoteModal(false);
+                  setEditingNote(null);
+                }}
+                style={{
+                  flex: 1, padding: '14px',
+                  backgroundColor: 'white',
+                  color: '#888',
+                  border: '1px solid #E5E5E5',
+                  borderRadius: '50px',
+                  fontSize: '15px',
                   fontWeight: '600',
                   cursor: 'pointer'
                 }}
